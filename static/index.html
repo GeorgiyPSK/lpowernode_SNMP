@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LPowerNode 2PDU</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 24px;
+  }
+  h1 {
+    font-size: 22px;
+    font-weight: 600;
+    margin: 0 0 20px;
+    color: #f8fafc;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 20px;
+    max-width: 900px;
+  }
+  .pdu {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .pdu-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 16px;
+  }
+  .pdu-title { font-size: 17px; font-weight: 600; }
+  .pdu-ip { font-size: 13px; color: #94a3b8; font-family: monospace; }
+  .outlet {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    margin-bottom: 10px;
+  }
+  .outlet:last-child { margin-bottom: 0; }
+  .outlet-name { font-size: 15px; font-weight: 500; }
+  .outlet-state {
+    font-size: 12px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-weight: 600;
+  }
+  .state-on  { background: #14532d; color: #4ade80; }
+  .state-off { background: #450a0a; color: #f87171; }
+  .state-unk { background: #334155; color: #94a3b8; }
+  .btns { display: flex; gap: 8px; margin-top: 10px; }
+  button {
+    flex: 1;
+    padding: 9px 0;
+    font-size: 14px;
+    font-weight: 600;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    color: #fff;
+    transition: filter .15s, opacity .15s;
+  }
+  button:hover:not(:disabled) { filter: brightness(1.15); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  .btn-on  { background: #16a34a; }
+  .btn-off { background: #dc2626; }
+  .err {
+    margin-top: 10px;
+    font-size: 13px;
+    color: #f87171;
+    word-break: break-word;
+  }
+  .toolbar { margin-bottom: 16px; }
+  .toolbar button {
+    background: #334155;
+    padding: 8px 16px;
+    flex: none;
+    width: auto;
+  }
+</style>
+</head>
+<body>
+
+<h1>LPowerNode 2PDU</h1>
+
+<div class="toolbar">
+  <button id="refresh-btn" onclick="loadAll()">⟳ Обновить всё</button>
+</div>
+
+<div class="grid" id="grid"></div>
+
+<script>
+const state = {}; // { pduId: { out1, out2, ip, title, error } }
+
+function render() {
+  const grid = document.getElementById("grid");
+  grid.innerHTML = "";
+
+  for (const [pduId, pdu] of Object.entries(state)) {
+    const card = document.createElement("div");
+    card.className = "pdu";
+
+    card.innerHTML = `
+      <div class="pdu-head">
+        <span class="pdu-title">${escapeHtml(pdu.title || pduId)}</span>
+        <span class="pdu-ip">${escapeHtml(pdu.ip || "")}</span>
+      </div>
+      ${["out1", "out2"].map(outlet => outletHtml(pduId, outlet, pdu[outlet])).join("")}
+      ${pdu.error ? `<div class="err">⚠ ${escapeHtml(pdu.error)}</div>` : ""}
+    `;
+    grid.appendChild(card);
+  }
+}
+
+function outletHtml(pduId, outlet, value) {
+  let cls = "state-unk", label = "—";
+  if (value === 1) { cls = "state-on";  label = "ВКЛ"; }
+  if (value === 0) { cls = "state-off"; label = "ВЫКЛ"; }
+
+  return `
+    <div class="outlet">
+      <div>
+        <div class="outlet-name">${outlet === "out1" ? "Розетка 1" : "Розетка 2"}</div>
+        <div class="btns">
+          <button class="btn-on"
+            onclick="setOutlet('${pduId}','${outlet}','on', this)"
+            ${value === 1 ? "disabled" : ""}>Вкл</button>
+          <button class="btn-off"
+            onclick="setOutlet('${pduId}','${outlet}','off', this)"
+            ${value === 0 ? "disabled" : ""}>Выкл</button>
+        </div>
+      </div>
+      <span class="outlet-state ${cls}">${label}</span>
+    </div>
+  `;
+}
+
+async function loadAll() {
+  const btn = document.getElementById("refresh-btn");
+  btn.disabled = true;
+
+  try {
+    const cfg = await fetch("/api/config").then(r => r.json());
+    if (!cfg.ok) throw new Error("config load failed");
+
+    const entries = Object.entries(cfg.pdus);
+    await Promise.all(entries.map(async ([pduId, info]) => {
+      state[pduId] = { ...state[pduId], title: info.title, ip: info.ip };
+      try {
+        const s = await fetch(`/api/pdu/${pduId}/status`).then(r => r.json());
+        state[pduId].out1 = s.out1 ?? null;
+        state[pduId].out2 = s.out2 ?? null;
+        state[pduId].error = s.ok ? null : (s.error || "unknown error");
+      } catch (e) {
+        state[pduId].out1 = null;
+        state[pduId].out2 = null;
+        state[pduId].error = String(e);
+      }
+    }));
+  } catch (e) {
+    console.error(e);
+    alert("Не удалось загрузить конфигурацию: " + e);
+  } finally {
+    btn.disabled = false;
+    render();
+  }
+}
+
+async function setOutlet(pduId, outlet, action, btnEl) {
+  const original = btnEl.textContent;
+  btnEl.disabled = true;
+  btnEl.textContent = "...";
+  try {
+    const res = await fetch(`/api/pdu/${pduId}/outlet/${outlet}/${action}`, {
+      method: "POST"
+    }).then(r => r.json());
+
+    if (!res.ok) {
+      alert(`${pduId}/${outlet}: ${res.error || "ошибка"}`);
+    } else {
+      state[pduId][outlet] = res.state;
+      state[pduId].error = null;
+    }
+  } catch (e) {
+    alert(`${pduId}/${outlet}: ${e}`);
+  } finally {
+    btnEl.textContent = original;
+    render();
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+}
+
+loadAll();
+</script>
+</body>
+</html>
