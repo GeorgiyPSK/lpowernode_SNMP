@@ -30,7 +30,7 @@ BER/ASN.1 кодирование и декодирование SNMP написа
 │ └── index.html # Веб-интерфейс
 └── README.md
 ```
-text
+
 
 ---
 
@@ -81,13 +81,13 @@ bash
 python server.py
 Вывод:
 
-text
+
 16:49:08 [INFO] server: Сервер запущен: http://0.0.0.0:8081
 16:49:08 [INFO] server:   pdu1: PDU 1 | PDU 192.168.12.12
 16:49:08 [INFO] server:   pdu2: PDU 2 | PDU 192.168.12.23
 Откройте в браузере:
 
-text
+
 http://<ip-сервера>:8081/
 REST API
 GET /api/config
